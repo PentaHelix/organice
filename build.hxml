@@ -1,0 +1,11 @@
+-cpp bin/Server
+-main Server
+
+--next
+
+-cpp bin/Client
+-main Client
+
+-cmd cd bin/Server
+-cmd cls
+-cmd Server
