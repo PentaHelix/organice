@@ -6,6 +6,8 @@ import sys.io.File;
 import haxe.Json;
 import haxe.io.Bytes;
 
+using StringTools;
+
 typedef Client = {
 	var id:Int;
 }
@@ -18,9 +20,13 @@ typedef Task = {
 	var id:Int;
 	var done:Bool;
 	var text:String;
-	var user:String;
 	var link:String;
 	var tags:Array<String>;
+}
+
+typedef ParameterValue = {
+	var par:String;
+	var val:Dynamic;
 }
 
 class Server extends ThreadServer<Client, Message>{
@@ -44,30 +50,39 @@ class Server extends ThreadServer<Client, Message>{
 	override function clientMessage(c:Client, msg:Message){
 		Lib.println("Client "+c.id+" sent request:");
 		Lib.println(msg.str);
-
 		var cmd:Array<String> = msg.str.split(" ");
+		if(cmd[0] == msg.str){
+			cmd[0] = StringTools.trim(StringTools.replace(msg.str, ";", ""));
+		}
 
+		//If parameters are passed, reformat them
+		if(cmd[1] == ";")cmd[1] = null;
+		if(cmd[1] != null){
+			cmd[1] = msg.str.substring(cmd[0].length+1, msg.str.length-1);
+		}
 		switch(cmd[0]){
 			case "get":
-				var tasks:Array<Task> = get(getRequestParameter(msg.str, "tags", true));
-				clients[c.id].write(Json.stringify(tasks) + "\n");
+				var tasks:Array<Task> = get(cmd[1]);
+				send(clients[c.id], Json.stringify(tasks) + "\n");
 			case "add":
-				json.push({done: false,
-							text: getRequestParameter(msg.str, "text"),
-							user: getRequestParameter(msg.str, "user"),
-							link: getRequestParameter(msg.str, "link"),
-							tags: getRequestParameter(msg.str, "tags", true),
-							id:   ++taskIDInc});
+				json.push(jsonFromParams(cmd[1]));
 				setJSON();
 			case "set":
-
+				set(cmd[1]);
+				setJSON();
 
 			default:
 				Lib.println("Invalid Command");
+				clients[c.id].write("Invalid Commad \n");
 		}
 	}
 
-	static function get(tags:Array<String>):Array<Task>{
+	static function get(str:String):Array<Task>{
+		if(str == null){
+			return json;
+		}
+
+		var tags:Array<String> = str.split(",");
 		var tasks:Array<Task> = new Array<Task>();
 		for(task in json){
 			for(tag in tags){
@@ -80,29 +95,13 @@ class Server extends ThreadServer<Client, Message>{
 		return tasks;
 	}
 
-	static function getRequestParameter(req:String, par:String, ?array=false):Dynamic{
-		req = req.split(";")[0];
-		var spl:Array<String> = req.split(" ");
-		for(s in spl){
-			var param:Array<String> = s.split(":");
-			if(param[0] == par){
-				var res:Dynamic = s.split(":")[1];
-				if(param[1].indexOf(",") != -1){
-					res = new Array<String>();
-					for(i in param[1].split(",")){
-						res.push(i);
-					}
-					return res;
-				}
-				if(array == true){
-					return [res];
-				}else{
-					return res;
-				}
-			}
+	static function set(str:String):Void{
+		var t:Task = getTaskById(Std.parseInt(str));
+		if(!t.done){
+			t.done = true;
+		}else{
+			json.remove(t);
 		}
-
-		return "";
 	}
 
 	override function clientConnected(s:Socket){
@@ -131,7 +130,7 @@ class Server extends ThreadServer<Client, Message>{
 		var file:String = File.getContent("tasks.json");
 		json = Json.parse(file);
 		for(task in json){
-			if(task.id < taskIDInc)taskIDInc = task.id;
+			if(task.id > taskIDInc)taskIDInc = task.id;
 		}
 	}
 
@@ -140,7 +139,30 @@ class Server extends ThreadServer<Client, Message>{
 		File.saveContent("tasks.json", str);
 	}
 
-	static function getStringParameter(str:String, pos:Int){
-		
+	static function jsonFromParams(str:String):Task{
+		var params:Array<String> = str.split(":");
+		var newTask = {
+			id: ++taskIDInc,
+			done: false,
+			text: params[0],
+			tags: params[1].split(","),
+			link: params[2]
+		}
+
+		return newTask;
+	}
+
+	static function send(s:Socket, msg:String){
+		s.write((msg.length+"").length+"");
+		s.write(msg.length+"");
+		s.write(msg);
+	}
+
+	static function getTaskById(id:Int):Task{
+		for(t in json){
+			if(t.id == id)return t;
+		}
+
+		return null;
 	}
 }
